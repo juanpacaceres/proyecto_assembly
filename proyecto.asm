@@ -4,6 +4,8 @@
     cclist: .word 0 # Lista de categorías
     wclist: .word 0 # Categoría actual
     schedv: .space 32 # Vector de funciones del menú
+    categoria_elegida: .asciiz "Categoría: "
+    prompt: .asciiz "> "
     
     # Menú del programa
     menu: 
@@ -21,13 +23,14 @@
         .asciiz "Ingrese la opcion deseada: "
 
     # Mensajes de error y éxito
-    error: .asciiz "Error: "
     return: .asciiz "\n"
     catName: .asciiz "\nIngrese el nombre de una categoria: "
     selCat: .asciiz "\nSe ha seleccionado la categoria:"
     idObj: .asciiz "\nIngrese el ID del objeto a eliminar: "
     objName: .asciiz "\nIngrese el nombre de un objeto: "
     success: .asciiz "La operación se realizo con exito\n\n"
+    error_message: .asciiz "Se ha producido un error"
+ 
 
 .text
     main:
@@ -49,20 +52,23 @@
         la $t1, delcategory
         sw $t1, 16($t0) # Guardo la dirección de newcategory en schedv[4]
 
-        #la $t1, newobject
-        #sw $t1, 20($t0) # Guardo la dirección de newcategory en schedv[5]
+        la $t1, newobject
+        sw $t1, 20($t0) # Guardo la dirección de newcategory en schedv[5]
 
-        #la $t1, listobjects
-        #sw $t1, 24($t0) # Guardo la dirección de newcategory en schedv[6]
+        la $t1, listobjects
+        sw $t1, 24($t0) # Guardo la dirección de newcategory en schedv[6]
 
-        #la $t1, delobjects
-        #sw $t1, 28($t0) # Guardo la dirección de newcategory en schedv[7]
+        la $t1, delobjects
+        sw $t1, 28($t0) # Guardo la dirección de newcategory en schedv[7]
 
         j start_loop
         
 #-------------------------------------------------------------------------------------------   
     # Primitivas
     newcategory:
+     	#li $v0, 4
+    	#la $a0, catName
+    	#syscall    
         addiu $sp, $sp, -4 # Reservo espacio en stack para la dirección de retorno
         sw $ra, 4($sp) # Guardo la dirección de retorno en stack
         la $a0, catName # input category name
@@ -95,12 +101,11 @@
         sw $t0, 12($v0) # Actualizo el puntero 'prev' del nuevo nodo
         sw $v0, 12($t1)# Actualizo el 'next' del último nodo
         sw $v0, 0($t0) # Actualizo el 'prev' del primer nodo
-        jr $ra
+        j addnode_exit
     addnode_empty_list:
         sw $v0, ($a0) # Si está vacío, el nuevo nodo es el primero
         sw $v0, 0($v0) # 'next' apunta a sí mismo
         sw $v0, 12($v0) # 'prev' también apunta a sí mismo
-        jr $ra
     addnode_exit:
         lw $ra, 8($sp)
         addi $sp, $sp, 8
@@ -151,19 +156,40 @@
 #-------------------------------------------------------------------------------------------  
     nextcategory:
         lw $t0, wclist # Cargo la categoría actual
-        beqz $t0, nextcategory_end # Si wclist es NULL, termina
-        lw $t1, 0($t0) # Obtengo la dirección del siguiente nodo
-        sw $t1, wclist # Actualizo wclist con el siguiente nodo
-        li $v0, 0
+        beqz $t0, error # Si wclist es NULL, termina
+        
+         # Verificamos si hay solo una categoría
+    	lw $t1, 0($t0)              
+    	beqz $t1, error  # Si el siguiente nodo es NULL, hay solo una categoría
+    	
+        # Si hay más de una categoría, muestro cuál se eligió
+    	li $v0, 4                 
+    	la $a0, categoria_elegida
+    	syscall
+
+    	# Acá imprimo el nombre de la categoría actual
+    	lw $a0, 0($t0)              
+    	li $v0, 4
+    	syscall
+
+        j nextcategory_end    
+    error:
+    	# Mostrar el mensaje de error
+    	li $v0, 4           
+    	la $a0, error_message # Dirección del mensaje de error
+    	syscall            
+    	li $v0, 10
+    	syscall                   
     nextcategory_end:
         jr $ra
 #-------------------------------------------------------------------------------------------  
     prevcategory:
     	lw $t0, wclist 
-    	beqz $t0, prevcategory_end # Si wclist es NULL, termina
+    	beqz $t0, error # Si wclist es NULL, termina
     	lw $t1, 12($t0)# Obtengo la dirección del nodo anterior
     	sw $t1, wclist # Actualizo wclist con el nodo anterior
-    	li $v0, 0               
+    	li $v0, 0
+    	j prevcategory_end               
     prevcategory_end:
     	jr $ra
 #-------------------------------------------------------------------------------------------  
@@ -171,15 +197,34 @@
         lw $t0, cclist # Cargo la lista de categorías
         beqz $t0, list_end # Si la lista está vacía, salir
         move $t1, $t0 # Inicio desde el primer nodo
+        lw $t2, wclist 
     list_loop:
         lw $a0, 8($t1) # Cargo el nombre de la categoría
         li $v0, 4 # Llamo a syscall para imprimir
         syscall
+        
+        # Verifico si esta categoría es la seleccionada
+        beq $t1, $t2, show_arrow
+        
         li $v0, 4
         la $a0, return       
         syscall
+   
         lw $t1, 0($t1) # Avanzo al siguiente nodo
         bne $t1, $t0, list_loop # Si no hemos vuelto al inicio, seguimos
+    show_arrow:
+    	li $v0, 4
+    	la $a0, return
+    	syscall
+    	
+	li $v0, 4
+    	lw $a0, 8($t1)      
+    	syscall
+    	
+    	li $v0, 4
+    	la $a0, prompt
+    	syscall
+    
     list_end:
         jr $ra               
 #-------------------------------------------------------------------------------------------  
@@ -258,14 +303,14 @@
         j newobject_exit
     newobject_error:
         li $v0, 4
-        la $a0, error                # Mensaje de error
+        la $a0, error               
         syscall
         li $v0, 0
     newobject_exit:
         lw $ra, 4($sp)               
         addiu $sp, $sp, 4           
         jr $ra
-
+#-------------------------------------------------------------------------------------------  
     # Función para listar objetos de la categoría actual
     listobjects:
         lw $t0, wclist # Cargo la categoría actual
@@ -279,8 +324,8 @@
         li $v0, 4
         la $a0, return               
         syscall
-        lw $t1, 0($t1)               # Siguiente nodo
-        bne $t1, 4($t0), listobjects_loop # Si no volvemos al inicio, seguimos
+        lw $t1, 0($t1) # Siguiente nodo
+        bnez $t1, listobjects_loop # Si no volvemos al inicio, seguimos
         jr $ra
     listobjects_empty:
         li $v0, 4
@@ -292,7 +337,7 @@
         la $a0, error
         syscall
         jr $ra
-
+#-------------------------------------------------------------------------------------------  
     # Función para eliminar un objeto de la categoría actual
     delobjects:
         beqz $t0, delobjects_error # Si wclist es NULL, error
@@ -309,16 +354,16 @@
         lw $t3, 4($t1) # Obtener el ID del objeto actual
         beq $t3, $t2, delobjects_found # Si coincide, se elimina
         lw $t1, 0($t1)              
-        bne $t1, 4($t0), delobjects_loop # Si 
+        bnez $t1, delobjects_loop 
         j delobjects_notfound
     delobjects_found:
         move $a0, $t1 #Dirección del nodo a eliminar
-        la $a1, 4($# Lista de objetos
+        la $a1, 4($t0) # Lista de objetos
         jal delnode                  
         li $v0, 0                    
         jr $ra
     delobjects_notfound:
-        la $a0, error                # "Objeto no encontrado
+        la $a0, error                
         syscall
         jr $ra
     delobjects_empty:
@@ -331,3 +376,4 @@
         la $a0, error                
         syscall
         jr $ra
+#-------------------------------------------------------------------------------------------  
